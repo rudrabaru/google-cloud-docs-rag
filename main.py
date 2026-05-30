@@ -25,7 +25,7 @@ if sys.platform == 'win32':
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 from src.crawler.crawl import crawl_gcp_load_balancing
-from src.processing.pipeline import ProcessingPipeline
+from src.processing.cleaner import ProcessingPipeline
 
 # Configure logging
 logging.basicConfig(
