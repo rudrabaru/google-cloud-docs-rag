@@ -1,35 +1,34 @@
-# Phase 2: Document Cleaning and Validation
+# Phase 2: Document Cleaning & Validation
 
-This phase is responsible for transforming the raw, unstructured markdown documents into clean, high-quality, and retrieval-ready documentation. The pipeline aggressively removes noise, boilerplate, and non-essential elements while preserving the core informational content.
+This phase describes the processing, cleaning, deduplication, and validation of raw crawled documentation. The objective is to filter out navigation menus, footers, boilerplate, and duplicate pages to ensure only high-quality, dense information is passed to the chunking phase.
 
 ## Overview
 
-The processing pipeline takes the raw files generated during Phase 1 as input. It applies a series of heuristics and pattern-matching strategies to strip out structural web artifacts that are irrelevant to the core documentation context, and subsequently validates the structural integrity of the cleaned markdown.
+The cleaning pipeline takes the raw Markdown documents and runs them through a `ProcessingPipeline`. This pipeline orchestrates:
+1. **GenericCleaner**: Evaluates content blocks using a `ClassificationPipeline` (signal-based heuristic logic) to strip out noise without relying on hardcoded site-specific keywords.
+2. **DuplicateRemover**: Detects and eliminates exact text duplicates using MD5 hashing.
+3. **ContentValidator**: Ensures the cleaned document meets minimal length and structural requirements (e.g., minimum words, valid markdown).
 
-The cleaned documents, alongside comprehensive reports and manifests, are versioned and stored in the `processed_docs/` directory.
+Outputs are stored securely in `processed_docs/vN/` in both `.md` and `.json` formats, with explicit versioning tracking injected into the metadata.
 
-## Cleaning Strategy
+## Implementation Details
 
-The content cleaner employs an advanced, multi-step filtration system:
+### 1. Signal-Based Classification
+Unlike legacy keyword filters that search for "skip to main content" or "copyright", the `ClassificationPipeline` relies on structural signals. It parses the document line by line, scoring blocks based on:
+- **Noise Score**: High link density, repetitive short phrases, specific structural patterns common in footers/nav bars.
+- **Content Score**: High word count, code blocks, complex formatting.
 
-1. **Footer Removal**: Detects and eliminates legal disclaimers, copyright notices, and generic site policy links from the end of the document.
-2. **Language Selectors**: Strips out multi-lingual navigation options and region selectors that clutter the text.
-3. **Navigation and Sidebar Cleanup**: Identifies and removes site-wide UI content, navigation menus, and link-heavy boilerplate sections using content-aware classification.
-4. **Whitespace Optimization**: Normalizes the document structure by removing excessive line breaks and whitespace.
+Blocks with a high noise-to-content ratio are dropped. This enables the cleaner to process GCP, AWS, or Azure documentation generically.
 
-## Validation Framework
+### 2. Versioned Outputs
+The pipeline reads from `raw_docs/vX/` and writes to `processed_docs/vY/`. Both `.json` and `.md` files are written. Crucially, the `document_version` is embedded directly into the JSON metadata payload to guarantee traceability.
+Reports (processing summaries, deduplication logs) are isolated and saved to `reports/processing_vY/`.
 
-After the cleaning procedures are executed, each document must pass a strict validation framework before it is approved for downstream usage. The validator performs a multi-point inspection, checking for:
+### 3. Tradeoffs
+- **Signal Heuristics vs. Perfect Accuracy**: By relying on density signals (like link-to-text ratio) rather than exact keywords, we trade absolute precision for generalization. An incredibly link-dense but valid API reference table might occasionally be scored as "noise" and dropped.
+- **Line-by-Line Evaluation vs. DOM Context**: The cleaner works on parsed Markdown, lacking the original HTML DOM tree. This means we cannot simply drop `<nav>` or `<footer>` tags, making the heuristic scoring more complex but the input format much simpler.
 
-- **Empty Content**: Ensuring the document is not devoid of substantial text.
-- **Minimum Length**: Guaranteeing the document contains enough characters to be structurally useful.
-- **Title Verification**: Confirming the presence of a primary heading.
-- **Syntax Integrity**: Checking for balanced brackets, parentheses, and properly closed code fences.
-- **Link Formatting**: Ensuring markdown links are cleanly structured without dangling brackets.
-- **Noise Thresholds**: Verifying that the document is not overwhelmingly composed of solitary links or heavily fragmented text.
-
-Documents that fail any of these integrity checks are discarded and logged, ensuring only the highest quality data moves forward in the pipeline.
-
-## Versioning and Reporting
-
-To maintain traceability, the output of the cleaning and validation pipeline is fully versioned. Each run generates a standardized processing report detailing the volume of documents ingested, cleaned, validated, and discarded. A version manifest is also produced, logging the specific enhancements applied during that iteration.
+### 4. Potential Failure Modes
+- **Aggressive False Positives**: Valid content (like a massive list of related links or API endpoints) might trigger a high noise score and get erroneously removed.
+- **Markdown Corruption**: Edge-case parsing bugs in the markdown conversion from Phase 1 might confuse the `ContentValidator`, leading to wholesale document rejection.
+- **Version Skew**: If the input version `raw_docs/vN` is out of sync with expected content, downstream processing logic may fail or produce invalid chunks.

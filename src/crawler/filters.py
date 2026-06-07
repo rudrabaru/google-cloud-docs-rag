@@ -128,54 +128,46 @@ class URLFilter:
         return report
 
 
-class GCPLoadBalancingFilter(URLFilter):
-    """Pre-configured filter for Google Cloud Load Balancing documentation."""
+class ConfigurableURLFilter(URLFilter):
+    """Generic filter that allows requiring specific path keywords and minimum path length."""
     
-    def __init__(self):
-        allowed_domains = ["docs.cloud.google.com"]
-        exclude_patterns = [
-            r".*\.pdf$",          # PDFs
-            r".*\.jpg$",          # Images
-            r".*\.png$",
-            r".*\.gif$",
-            r".*\.(zip|gz|tar)$", # Archives
-            r".*/api-ref/.*",     # API reference (auto-generated)
-            r".*/release-notes$", # Release notes (often auto-generated)
-            r".*\/search\?.*",    # Search pages
-        ]
-        
+    def __init__(
+        self,
+        allowed_domains: Optional[List[str]] = None,
+        exclude_patterns: Optional[List[str]] = None,
+        allow_pagination: bool = False,
+        required_path_keywords: Optional[List[str]] = None,
+        min_path_length: int = 0
+    ):
         super().__init__(
             allowed_domains=allowed_domains,
             exclude_patterns=exclude_patterns,
-            allow_pagination=False
+            allow_pagination=allow_pagination
         )
-        self.min_path_length = 15  # Exclude very short paths (likely nav)
-        self.load_balancing_keywords = [
-            "load-balancing",
-            "load_balancing", 
-            "network-services",
-        ]
-    
+        self.required_path_keywords = [kw.lower() for kw in (required_path_keywords or [])]
+        self.min_path_length = min_path_length
+        
     def should_crawl(self, url: str, reason_log: bool = False) -> bool:
-        """GCP-specific filtering logic."""
+        """Applies generic filtering logic including keywords and path length."""
         # First, apply parent class filters
         if not super().should_crawl(url, reason_log=reason_log):
             return False
-        
-        # Check if path contains Load Balancing keywords
+            
         parsed = urlparse(url)
         path_lower = parsed.path.lower()
         
-        has_keyword = any(kw in path_lower for kw in self.load_balancing_keywords)
-        if not has_keyword:
-            if reason_log:
-                self._log_filter(url, "Not a Load Balancing page (missing keywords)")
-            return False
-        
-        # Exclude very short paths
+        # Check required path keywords
+        if self.required_path_keywords:
+            has_keyword = any(kw in path_lower for kw in self.required_path_keywords)
+            if not has_keyword:
+                if reason_log:
+                    self._log_filter(url, "Missing required path keywords")
+                return False
+                
+        # Exclude short paths (like pure domain root navigation)
         if len(parsed.path) < self.min_path_length:
             if reason_log:
-                self._log_filter(url, "Path too short (likely navigation)")
+                self._log_filter(url, "Path too short (likely top-level navigation)")
             return False
-        
+            
         return True
