@@ -1,282 +1,222 @@
-"""
-Content cleaning pipeline to remove noise and ensure data quality.
-Includes generic cleaner, deduplicator, and validator modules.
-"""
-
-import json
-import re
 import hashlib
-from datetime import datetime
-from pathlib import Path
-from typing import List, Optional, Tuple
-import logging
+import re
+from typing import List, Dict, Set
+from src.processing.models import Block, BlockMetrics
 
-from src.classification.pipeline import ClassificationPipeline
-
-logger = logging.getLogger(__name__)
-
-
-class GenericCleaner:
-    """
-    Wrapper around the multi-signal Classification Pipeline.
-    Replaces old keyword-based cleaners.
-    """
-    
-    def __init__(self):
-        self.pipeline = ClassificationPipeline()
+class DocumentCleaner:
+    def __init__(self, total_documents: int):
+        self.total_documents = total_documents
+        self.block_document_counts: Dict[str, int] = {}
         
-    def clean(self, content: str, title: str = "", url: str = "") -> str:
-        """
-        Clean markdown content using signal-based classification.
-        """
-        if not content:
-            return ""
-            
-        metadata = {"title": title, "url": url}
-        cleaned_text = self.pipeline.process_document(content, metadata)
-        
-        # Cleanup excessive whitespace
-        cleaned_text = re.sub(r"\n\n\n+", "\n\n", cleaned_text)
-        return cleaned_text.strip()
-
-
-class DuplicateRemover:
-    """Detects and removes duplicate documents."""
-    
-    def __init__(self):
-        self.content_hashes = {}  # hash -> (url, title)
-        self.removed_duplicates = []
-    
-    def is_duplicate(self, content: str, url: str) -> bool:
-        content_hash = self._hash_content(content)
-        
-        if content_hash in self.content_hashes:
-            self.removed_duplicates.append({
-                "url": url,
-                "original_url": self.content_hashes[content_hash][0],
-                "reason": "exact_duplicate"
-            })
-            return True
-        
-        self.content_hashes[content_hash] = (url, content[:100])
-        return False
-    
     def _hash_content(self, content: str) -> str:
-        normalized = re.sub(r'\s+', ' ', content.strip().lower())
-        return hashlib.md5(normalized.encode()).hexdigest()
-    
-    def get_report(self) -> dict:
-        return {
-            "total_duplicates_removed": len(self.removed_duplicates),
-            "removed": self.removed_duplicates,
-        }
+        # Strip URLs from markdown links [text](url) -> [text]
+        normalized = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'[\1]', content)
+        # Strip dates like YYYY-MM-DD
+        normalized = re.sub(r'\d{4}-\d{2}-\d{2}', '', normalized)
+        # Normalize whitespace before hashing to catch slight variations
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        return hashlib.md5(normalized.encode('utf-8')).hexdigest()
 
-
-class ContentValidator:
-    """Validates document quality and rejects low-quality content without hardcoded domain knowledge."""
-    
-    def __init__(
-        self,
-        min_words: int = 100,
-        max_words: int = 15000,
-    ):
-        self.min_words = min_words
-        self.max_words = max_words
-        self.validation_log = []
-    
-    def validate(self, content: str, url: str) -> Tuple[bool, Optional[str]]:
-        """Validate document content with critical checks only."""
-        word_count = len(content.split())
-        if not (self.min_words <= word_count <= self.max_words):
-            reason = f"Too short/long: {word_count} words (range: {self.min_words}-{self.max_words})"
-            self.validation_log.append({"url": url, "reason": reason})
-            return False, reason
+    def parse_blocks(self, markdown: str) -> List[Block]:
+        """Parses markdown text into semantic blocks while preserving code/tables."""
+        blocks = []
         
-        if not self._is_valid_markdown(content):
-            reason = "Invalid markdown syntax (seriously broken structure)"
-            self.validation_log.append({"url": url, "reason": reason})
-            return False, reason
+        raw_lines = markdown.split('\n')
         
-        heading_count = sum(1 for line in content.split('\n') if line.startswith('#'))
-        if heading_count < 1:
-            reason = "No heading structure found (no content hierarchy)"
-            self.validation_log.append({"url": url, "reason": reason})
-            return False, reason
-        
-        return True, None
-    
-    def validate_comprehensive(self, content: str, url: str) -> dict:
-        checks = {}
-        
-        word_count = len(content.split())
-        checks['word_count_valid'] = self.min_words <= word_count <= self.max_words
-        checks['markdown_valid'] = self._is_valid_markdown(content)
-        
-        # Check 3: Sidebar removed - link density should be reasonable
-        link_count = content.count('[')
-        para_count = len([l for l in content.split('\n') if len(l.strip()) > 20])
-        link_density = link_count / max(para_count, 1)
-        checks['sidebar_removed'] = link_density < 0.5
-        
-        # Check 4: Heading hierarchy present
-        heading_count = sum(1 for line in content.split('\n') if line.startswith('#'))
-        checks['heading_hierarchy_extracted'] = heading_count >= 1
-        
-        return checks
-    
-    def _is_valid_markdown(self, content: str) -> bool:
-        lines = content.split('\n')
+        current_block_lines = []
         in_code_block = False
+        in_table = False
         
-        for line in lines:
-            if line.strip().startswith('```'):
+        for line in raw_lines:
+            code_fences = line.count('```')
+            
+            if code_fences % 2 != 0:
                 in_code_block = not in_code_block
+                
+            # Table detection: consecutive lines starting and ending with |
+            # or containing |---|
+            line_is_table_part = line.strip().startswith('|') and line.strip().endswith('|')
+            if not in_code_block and not in_table and line_is_table_part:
+                in_table = True
+            elif not in_code_block and in_table and not line_is_table_part:
+                in_table = False
+                # Flush the table block
+                content = '\n'.join(current_block_lines).strip()
+                if content:
+                    blocks.append(self._create_block(content))
+                current_block_lines = []
+                
+            current_block_lines.append(line)
+                
+            if not in_code_block and not in_table:
+                # Flush normal line block
+                content = '\n'.join(current_block_lines).strip()
+                if content:
+                    blocks.append(self._create_block(content))
+                current_block_lines = []
+                
+        # Handle trailing
+        if current_block_lines:
+            content = '\n'.join(current_block_lines).strip()
+            if content:
+                blocks.append(self._create_block(content))
+                
+        # Assign position ratio
+        total_blocks = len(blocks)
+        for i, block in enumerate(blocks):
+            block.metrics.position_ratio = i / total_blocks if total_blocks > 0 else 0.0
+            
+        return blocks
+
+    def _create_block(self, content: str) -> Block:
+        metrics = BlockMetrics()
         
-        if in_code_block:
-            return False
+        # Check type
+        if content.startswith('```') and content.endswith('```'):
+            metrics.is_code = True
+        elif content.startswith('#'):
+            metrics.is_heading = True
+        elif '|---|' in content or '|---' in content or '---|' in content:
+            metrics.is_table = True
+        elif content.startswith('- ') or content.startswith('* ') or re.match(r'^\d+\.\s', content):
+            metrics.is_list = True
+            
+        words = re.findall(r'\b\w+\b', content.lower())
+        metrics.word_count = len(words)
         
-        for line in lines:
-            if line.strip().startswith('```'):
+        if words:
+            metrics.unique_word_ratio = len(set(words)) / len(words)
+        else:
+            metrics.unique_word_ratio = 0.0
+        
+        # Calculate link density
+        # Matches [text](url)
+        links = re.findall(r'\[([^\]]+)\]\([^\)]+\)', content)
+        metrics.link_count = len(links)
+        
+        link_text_length = sum(len(text) for text in links)
+        content_length = len(content)
+        
+        if content_length > 0:
+            metrics.link_density = link_text_length / content_length
+            
+        return Block(
+            content=content,
+            content_hash=self._hash_content(content),
+            metrics=metrics
+        )
+
+    def process_corpus_frequencies(self, all_documents_blocks: List[List[Block]]):
+        """Pass 1: Count document frequency for all block hashes."""
+        for doc_blocks in all_documents_blocks:
+            # Use a set to only count a block once per document
+            doc_hashes = set(b.content_hash for b in doc_blocks)
+            for h in doc_hashes:
+                self.block_document_counts[h] = self.block_document_counts.get(h, 0) + 1
+                
+    def clean_document_blocks(self, blocks: List[Block]) -> List[Block]:
+        """Pass 2: Score and filter blocks for a single document."""
+        cleaned = []
+        
+        for i, block in enumerate(blocks):
+            # Update frequency metric
+            df_count = self.block_document_counts.get(block.content_hash, 0)
+            block.metrics.document_frequency = df_count / self.total_documents if self.total_documents > 0 else 0.0
+            
+            # 1. Protection rules (NEVER REMOVE)
+            if block.metrics.is_code or block.metrics.is_table or block.metrics.is_heading:
+                cleaned.append(block)
                 continue
+                
+            # 2. Boilerplate Scoring
+            score = 0.0
+            reasons = []
+            signals_triggered = []
             
-            bracket_stack = []
-            in_link = False
-            i = 0
-            while i < len(line):
-                if line[i] == '[':
-                    bracket_stack.append('[')
-                    in_link = True
-                elif line[i] == ']':
-                    if bracket_stack and bracket_stack[-1] == '[':
-                        bracket_stack.pop()
-                        in_link = False
-                elif line[i] == '(' and in_link:
-                    bracket_stack.append('(')
-                elif line[i] == ')' and in_link:
-                    if bracket_stack and bracket_stack[-1] == '(':
-                        bracket_stack.pop()
-                i += 1
+            # Signal 1: Document Frequency
+            if block.metrics.document_frequency > 0.80:
+                score += 5.0
+                signals_triggered.append("frequency_high")
+                reasons.append(f"High Frequency ({block.metrics.document_frequency:.0%})")
+            elif block.metrics.document_frequency > 0.40:
+                score += 3.0
+                signals_triggered.append("frequency_med")
+                reasons.append(f"Medium Frequency ({block.metrics.document_frequency:.0%})")
+            elif block.metrics.document_frequency > 0.10:
+                score += 1.0
+                signals_triggered.append("frequency_low")
+                reasons.append(f"Low Frequency ({block.metrics.document_frequency:.0%})")
+                
+            # Signal 2: Position penalty (top 10% or bottom 10%)
+            if block.metrics.position_ratio < 0.1 or block.metrics.position_ratio > 0.9:
+                score += 1.5
+                signals_triggered.append("edge_position")
+                reasons.append(f"Edge Position ({block.metrics.position_ratio:.2f})")
+                
+            # Signal 3: Link density penalty
+            if block.metrics.link_density > 0.8:
+                score += 3.0
+                signals_triggered.append("link_density_high")
+                reasons.append(f"High Link Density ({block.metrics.link_density:.2f})")
+            elif block.metrics.link_density > 0.5:
+                score += 1.0
+                signals_triggered.append("link_density_med")
+                reasons.append(f"Medium Link Density ({block.metrics.link_density:.2f})")
+                
+            # Signal 4: Information density
+            if block.metrics.word_count < 10 and block.metrics.link_count > 0:
+                score += 2.0
+                signals_triggered.append("info_density_low")
+                reasons.append(f"Low Info Density (Short with Links)")
+            elif block.metrics.word_count > 30 and block.metrics.link_density < 0.1:
+                score -= 3.0
+                reasons.append(f"High Info Density (Long Explanation)")
+                
+            # Signal 6: Content Diversity
+            if block.metrics.word_count > 5 and block.metrics.unique_word_ratio < 0.5:
+                score += 2.0
+                signals_triggered.append("diversity_low")
+                reasons.append(f"Low Diversity ({block.metrics.unique_word_ratio:.2f})")
+                
+            # Signal 5: Context (Check neighbors for high link density or edge position)
+            # If previous or next block is a small link block
+            context_penalty = 0.0
+            if i > 0 and blocks[i-1].metrics.link_density > 0.5 and blocks[i-1].metrics.word_count < 15:
+                context_penalty += 1.0
+            if i < len(blocks) - 1 and blocks[i+1].metrics.link_density > 0.5 and blocks[i+1].metrics.word_count < 15:
+                context_penalty += 1.0
+                
+            if context_penalty > 0:
+                score += context_penalty
+                signals_triggered.append("context_penalty")
+                reasons.append(f"Context Penalty (+{context_penalty})")
+                
+            block.boilerplate_score = score
+            block.triggered_signals = signals_triggered
             
-            if len(bracket_stack) > 3:
-                return False
-        
-        return True
-    
-    def get_report(self) -> dict:
-        return {
-            "total_validated": len(self.validation_log),
-            "validations": self.validation_log,
-        }
-
-
-class ProcessingPipeline:
-    """Orchestrates cleaning, deduplication, and validation."""
-    
-    def __init__(
-        self,
-        raw_dir: str = "./raw_docs",
-        processed_dir: str = "./processed_docs",
-        min_words: int = 100,
-        max_words: int = 15000,
-        version: str = "v1",
-    ):
-        self.raw_dir = Path(raw_dir)
-        self.processed_dir = Path(processed_dir)
-        self.processed_dir.mkdir(parents=True, exist_ok=True)
-        self.version = version
-        
-        self.cleaner = GenericCleaner()
-        self.deduplicator = DuplicateRemover()
-        self.validator = ContentValidator(min_words, max_words)
-        
-        self.processed_docs = []
-        self.processing_log = {
-            "total_input": 0,
-            "cleaned": 0,
-            "deduplicated": 0,
-            "validated": 0,
-            "failed": 0,
-        }
-    
-    def process(self) -> List[dict]:
-        logger.info(f"Starting processing pipeline from {self.raw_dir}")
-        json_files = list(self.raw_dir.glob("*.json"))
-        self.processing_log["total_input"] = len(json_files)
-        logger.info(f"Found {len(json_files)} raw documents")
-        
-        for json_file in json_files:
-            try:
-                with open(json_file, 'r', encoding='utf-8') as f:
-                    doc_data = json.load(f)
-                
-                url = doc_data.get("url", "")
-                title = doc_data.get("title", "")
-                content = doc_data.get("markdown_content", "")
-                
-                # Clean
-                cleaned_content = self.cleaner.clean(content, title, url)
-                self.processing_log["cleaned"] += 1
-                
-                # Check for duplicates
-                if self.deduplicator.is_duplicate(cleaned_content, url):
-                    self.processing_log["deduplicated"] += 1
-                    continue
-                
-                # Validate
-                is_valid, reason = self.validator.validate(cleaned_content, url)
-                if not is_valid:
-                    self.processing_log["failed"] += 1
-                    continue
-                
-                self.processing_log["validated"] += 1
-                
-                # Save processed document
-                processed_data = doc_data.copy()
-                processed_data["markdown_content"] = cleaned_content
-                processed_data["processing_timestamp"] = str(datetime.utcnow() if 'datetime' in globals() else json_file.stat().st_mtime)
-                processed_data["document_version"] = self.version
-                
-                self._save_processed(processed_data)
-                self.processed_docs.append(processed_data)
+            # Confidence Tiers for Removal
+            is_removed = False
             
-            except Exception as e:
-                self.processing_log["failed"] += 1
-                logger.error(f"Error processing {json_file}: {e}")
-        
-        return self.processed_docs
-    
-    def _save_processed(self, doc_data: dict):
-        filename = Path(doc_data.get("url", "index")).name + ".json"
-        filename = re.sub(r'[^a-z0-9._-]', '_', filename.lower())
-        
-        # Save JSON
-        json_path = self.processed_dir / filename
-        with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(doc_data, f, indent=2, default=str)
+            # Tier 1: Extremely high frequency, short, low info (obvious chrome/nav)
+            if block.metrics.document_frequency > 0.95 and block.metrics.word_count < 15:
+                is_removed = True
+                reasons.append("Tier 1: Obvious Chrome")
+                
+            # Tier 2: Strong candidates (needs multiple signals)
+            elif score >= 6.0 and len(set([s.split('_')[0] for s in signals_triggered])) >= 2:
+                # Requires score >= 6 and at least 2 different signal types (e.g. frequency + position)
+                is_removed = True
+                reasons.append("Tier 2: Multi-Signal Match")
+                
+            # Tier 3: Link walls
+            elif block.metrics.link_density > 0.9 and block.metrics.document_frequency > 0.2:
+                is_removed = True
+                reasons.append("Tier 3: Link Wall")
             
-        # Save Markdown
-        md_filename = filename.replace('.json', '.md')
-        md_path = self.processed_dir / md_filename
-        with open(md_path, 'w', encoding='utf-8') as f:
-            title = doc_data.get("title", "Untitled")
-            url = doc_data.get("url", "")
-            f.write(f"# {title}\n\n")
-            f.write(f"**Source:** {url}\n")
-            f.write(f"**Version:** {self.version}\n\n")
-            f.write(doc_data.get("markdown_content", ""))
-    
-    def save_reports(self, output_dir: str = "./reports/processing", filename: str = "processing_report.json") -> str:
-        output_path = Path(output_dir)
-        output_path.mkdir(parents=True, exist_ok=True)
-        report_file = output_path / filename
-        
-        report = {
-            "processing_summary": self.processing_log,
-            "deduplication_report": self.deduplicator.get_report(),
-            "validation_report": self.validator.get_report()
-        }
-        
-        with open(report_file, 'w', encoding='utf-8') as f:
-            json.dump(report, f, indent=2)
-            
-        return str(report_file)
+            if is_removed and score > -1.0: # Prevent removal of strongly rewarded blocks
+                block.is_removed = True
+                block.removal_reason = " | ".join(reasons)
+            else:
+                cleaned.append(block)
+                
+        return cleaned

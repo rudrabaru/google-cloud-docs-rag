@@ -21,6 +21,7 @@ class CrawledDocument(BaseModel):
     word_count: int = Field(0, description="Word count of markdown_content")
     status_code: Optional[int] = Field(None, description="HTTP status code when crawled")
     error: Optional[str] = Field(None, description="Error message if crawl failed")
+    raw_html: Optional[str] = Field(None, exclude=True, description="Raw HTML content")
     
     class Config:
         json_schema_extra = {
@@ -43,6 +44,9 @@ class CrawlConfig(BaseModel):
     start_url: str = Field(..., description="Root URL to start crawling")
     max_depth: int = Field(3, description="Maximum crawl depth")
     max_pages: int = Field(300, description="Maximum pages to crawl")
+    soft_limit_pages: int = Field(1000, description="Soft limit for logging")
+    warning_limit_pages: int = Field(5000, description="Warning limit threshold")
+    abort_limit_pages: int = Field(10000, description="Hard limit to abort crawl")
     allowed_domains: List[str] = Field(default_factory=list, description="List of allowed domains (if empty, use start_url domain)")
     exclude_patterns: List[str] = Field(
         default_factory=lambda: [r".*\.pdf$", r".*\.jpg$", r".*\.png$", r".*\?page="],
@@ -87,3 +91,15 @@ Crawl Metrics:
   - Duration: {self.crawl_duration_seconds:.1f}s
   - Avg Words/Page: {self.average_page_words:.0f}
         """
+
+class CrawlFailure(BaseModel):
+    """Schema for a failed crawl attempt."""
+    url: str
+    error: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+class CrawlManifestEntry(BaseModel):
+    """Schema for a successful crawl attempt in the manifest."""
+    url: str
+    status: str = "success"
+    timestamp: datetime = Field(default_factory=datetime.utcnow)

@@ -11,9 +11,8 @@ from typing import List, Optional
 from urllib.parse import urljoin, urlparse
 import logging
 
-# pyrefly: ignore [missing-import]
 from crawl4ai import AsyncWebCrawler, CrawlResult
-from .metadata import CrawledDocument, CrawlConfig, CrawlMetrics
+from .metadata import CrawledDocument, CrawlConfig, CrawlMetrics, CrawlFailure, CrawlManifestEntry
 from .filters import URLFilter, ConfigurableURLFilter
 
 
@@ -30,20 +29,26 @@ class WebCrawler:
         config: CrawlConfig,
         url_filter: Optional[URLFilter] = None,
         output_dir: str = "./raw_docs",
+        html_dir: str = "./raw_html",
     ):
         """
         Args:
             config: CrawlConfig with crawl parameters
             url_filter: URLFilter instance (if None, creates permissive filter)
             output_dir: Directory to save crawled documents
+            html_dir: Directory to save raw HTML
         """
         self.config = config
         self.url_filter = url_filter or URLFilter()
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.html_dir = Path(html_dir)
+        self.html_dir.mkdir(parents=True, exist_ok=True)
         
         self.metrics = CrawlMetrics()
         self.crawled_docs: List[CrawledDocument] = []
+        self.failures: List[CrawlFailure] = []
+        self.manifest: List[CrawlManifestEntry] = []
         self.queue: List[tuple[str, int]] = [(config.start_url, 0)]  # (url, depth)
     
     async def crawl(self) -> List[CrawledDocument]:
@@ -62,6 +67,21 @@ class WebCrawler:
                 processed_urls = set()
                 
                 while self.queue and len(self.crawled_docs) < self.config.max_pages:
+                    # Enforce abort limit
+                    if self.metrics.total_urls_crawled >= self.config.abort_limit_pages:
+                        logger.error(f"ABORT LIMIT REACHED: {self.config.abort_limit_pages} pages. Forcing stop.")
+                        break
+                        
+                    # Check warning limits
+                    if self.metrics.total_urls_crawled == self.config.warning_limit_pages:
+                        logger.warning(f"WARNING LIMIT REACHED: {self.config.warning_limit_pages} pages crawled.")
+                    elif self.metrics.total_urls_crawled == self.config.soft_limit_pages:
+                        logger.info(f"SOFT LIMIT REACHED: {self.config.soft_limit_pages} pages crawled.")
+                        
+                    # Log progress periodically (every 20 pages to avoid spam)
+                    if self.metrics.total_urls_crawled > 0 and self.metrics.total_urls_attempted % 20 == 0:
+                        self._log_progress(start_time)
+                        
                     url, depth = self.queue.pop(0)
                     
                     # Skip if already processed
@@ -126,6 +146,7 @@ class WebCrawler:
             
             if result.status_code != 200:
                 logger.warning(f"Status code {result.status_code} for {url}")
+                self.failures.append(CrawlFailure(url=url, error=f"Status code {result.status_code}"))
                 return None
             
             title = self._extract_title(result)
@@ -140,10 +161,15 @@ class WebCrawler:
                 markdown_content = result.cleaned_html
             elif hasattr(result, 'html') and result.html:
                 markdown_content = result.html
+                
+            raw_html = None
+            if hasattr(result, 'html') and result.html:
+                raw_html = result.html
             
             if not markdown_content:
                 logger.warning(f"No markdown content extracted from {url}")
                 logger.debug(f"Result attributes: {dir(result)}")
+                self.failures.append(CrawlFailure(url=url, error="No markdown content extracted"))
                 return None
             
             word_count = len(markdown_content.split())
@@ -160,10 +186,12 @@ class WebCrawler:
                 outgoing_links=links,
                 word_count=word_count,
                 status_code=200,
+                raw_html=raw_html,
             )
             
             # Save to disk (both JSON and Markdown)
             self._save_document(doc)
+            self.manifest.append(CrawlManifestEntry(url=url, status="success"))
             
             logger.info(f"[OK] Crawled {url} ({word_count} words)")
             return doc
@@ -172,6 +200,7 @@ class WebCrawler:
             logger.error(f"Failed to crawl {url}: {e}")
             import traceback
             logger.debug(traceback.format_exc())
+            self.failures.append(CrawlFailure(url=url, error=str(e)))
             return None
     
     def _extract_title(self, result: CrawlResult) -> str:
@@ -250,7 +279,32 @@ class WebCrawler:
             f.write(f"# {doc.title or 'Untitled'}\n\n")
             f.write(f"**Source:** {doc.url}\n\n")
             f.write(doc.markdown_content)
+            
+        if doc.raw_html:
+            html_path = self.html_dir / f"{filename_safe}.html"
+            with open(html_path, 'w', encoding='utf-8') as f:
+                f.write(doc.raw_html)
     
+    def _log_progress(self, start_time: float):
+        """Log the current progress of the crawl."""
+        crawled = self.metrics.total_urls_crawled
+        if crawled == 0:
+            return
+            
+        elapsed = time.time() - start_time
+        avg_time = elapsed / crawled
+        queue_size = len(self.queue)
+        eta_seconds = queue_size * avg_time
+        
+        eta_str = f"{eta_seconds / 60:.1f}m" if eta_seconds < 3600 else f"{eta_seconds / 3600:.1f}h"
+        
+        logger.info(
+            f"PROGRESS: Crawled: {crawled} | "
+            f"Remaining (Queue): {queue_size} | "
+            f"Avg Time: {avg_time:.2f}s/page | "
+            f"ETA: {eta_str}"
+        )
+
     def _finalize_metrics(self):
         """Calculate final metrics."""
         if self.crawled_docs:
@@ -264,24 +318,33 @@ class WebCrawler:
         import asyncio
         await asyncio.sleep(seconds)
     
-    def save_summary(self, filename: str = "crawl_summary.json", output_dir: Optional[str] = None):
+    def save_summary(self, metrics_dir: Optional[str] = None):
         """Save crawl summary with all metadata."""
+        target_dir = Path(metrics_dir) if metrics_dir else self.output_dir / "metrics"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        
+        # summary
         summary = {
             "config": self.config.model_dump(),
             "metrics": self.metrics.model_dump(),
-            "documents": [doc.model_dump(mode='json') for doc in self.crawled_docs],
-            "filter_report": self.url_filter.get_filter_report(),
         }
-        
-        target_dir = Path(output_dir) if output_dir else self.output_dir
-        target_dir.mkdir(parents=True, exist_ok=True)
-        path = target_dir / filename
-        
-        with open(path, 'w', encoding='utf-8') as f:
+        with open(target_dir / "crawl_summary.json", 'w', encoding='utf-8') as f:
             json.dump(summary, f, indent=2, default=str)
+            
+        # manifest
+        with open(target_dir / "crawl_manifest.json", 'w', encoding='utf-8') as f:
+            json.dump([m.model_dump(mode='json') for m in self.manifest], f, indent=2, default=str)
+            
+        # failures
+        with open(target_dir / "crawl_failures.json", 'w', encoding='utf-8') as f:
+            json.dump([fail.model_dump(mode='json') for fail in self.failures], f, indent=2, default=str)
+            
+        # filter report
+        with open(target_dir / "crawl_report.json", 'w', encoding='utf-8') as f:
+            json.dump(self.url_filter.get_filter_report(), f, indent=2, default=str)
         
-        logger.info(f"Summary saved to {path}")
-        return path
+        logger.info(f"Metrics saved to {target_dir}")
+        return target_dir
 
 
 # Generic convenience function for crawling
@@ -292,8 +355,12 @@ async def run_crawler(
     exclude_patterns: List[str] = None,
     max_depth: int = 3,
     max_pages: int = 100,
+    soft_limit_pages: int = 1000,
+    warning_limit_pages: int = 5000,
+    abort_limit_pages: int = 10000,
     output_dir: str = "./raw_docs",
-    report_dir: Optional[str] = None,
+    html_dir: str = "./raw_html",
+    metrics_dir: Optional[str] = None,
 ) -> List[CrawledDocument]:
     """
     Run the crawler with generic configuration.
@@ -305,8 +372,12 @@ async def run_crawler(
         exclude_patterns: Regex patterns to exclude
         max_depth: Maximum crawl depth
         max_pages: Maximum pages to crawl
+        soft_limit_pages: Soft limit for logging
+        warning_limit_pages: Warning limit threshold
+        abort_limit_pages: Hard limit to abort crawl
         output_dir: Output directory
-        report_dir: Directory to save the crawl summary report
+        html_dir: HTML output directory
+        metrics_dir: Directory to save the crawl summary report
     
     Returns:
         List of crawled documents
@@ -315,13 +386,16 @@ async def run_crawler(
         start_url=start_url,
         max_depth=max_depth,
         max_pages=max_pages,
+        soft_limit_pages=soft_limit_pages,
+        warning_limit_pages=warning_limit_pages,
+        abort_limit_pages=abort_limit_pages,
     )
     
     if exclude_patterns is None:
         exclude_patterns = [
             r".*\.pdf$", r".*\.jpg$", r".*\.png$", r".*\.gif$",
             r".*\.(zip|gz|tar)$", r".*/api-ref/.*", r".*/release-notes$",
-            r".*\/search\?.*"
+            r".*\/search.*", r".*\/login.*", r".*\/feedback.*", r".*\/support.*"
         ]
         
     url_filter = ConfigurableURLFilter(
@@ -332,9 +406,9 @@ async def run_crawler(
         allow_pagination=False
     )
     
-    crawler = WebCrawler(config, url_filter, output_dir)
+    crawler = WebCrawler(config, url_filter, output_dir=output_dir, html_dir=html_dir)
     
     docs = await crawler.crawl()
-    crawler.save_summary(output_dir=report_dir)
+    crawler.save_summary(metrics_dir=metrics_dir)
     
     return docs

@@ -1,194 +1,253 @@
-# Data Engineering Guidelines
+Act as a Senior RAG Data Processing Engineer.
 
-You are acting as a Senior Data Engineer.
+Implement a generic boilerplate detection and removal system for the Document Processing stage.
 
-## Core Philosophy
+The objective is to identify and remove website chrome, navigation artifacts, and other non-content elements while preserving all meaningful information required for retrieval.
 
-Prioritize data quality, correctness, observability, and maintainability over speed of implementation.
-
-When designing or modifying any data-processing pipeline:
-
-* Preserve information whenever possible.
-* Remove data only when there is strong evidence that it is noise.
-* Avoid destructive transformations.
-* Prefer conservative processing over aggressive filtering.
-* Treat source data as immutable.
-
-If uncertainty exists between preserving and removing information:
-
-PRESERVE THE INFORMATION.
+The system must remain perfectly corpus-agnostic and reusable across future documentation sources without code changes.
 
 ---
 
-## Source of Truth
+## Core Principles
 
-Raw data is the authoritative source.
+Content preservation is the highest priority.
 
-Never modify raw data directly.
+If uncertainty exists between removing and preserving content:
 
-All transformations should be reproducible from source data through code.
+PRESERVE THE CONTENT.
 
-Derived artifacts should always be regenerable.
+Do NOT hardcode:
 
----
+* source-specific phrases (e.g. "skip to main content")
+* page titles
+* URLs
+* product names
+* section names
+* navigation labels
+* domain-specific keywords
 
-## Pipeline Design
-
-Design pipelines as independent stages with clear responsibilities.
-
-Each stage should:
-
-* have a single purpose
-* produce measurable outputs
-* expose useful metrics
-* be testable in isolation
-
-Avoid mixing responsibilities across stages.
-
-Prefer:
-
-Input
-→ Processing
-→ Validation
-→ Output
-
-over monolithic workflows.
+Use structural, statistical, and semantic signals instead.
 
 ---
 
-## Observability Requirements
+## Boilerplate Detection Strategy
 
-Every processing step should generate useful metrics.
+Analyze content at the block level.
 
-Examples:
+A block may be:
 
-* records processed
-* records modified
-* records removed
-* content retention percentages
-* structure preservation metrics
-* processing duration
-* validation results
+* heading
+* paragraph
+* list
+* table
+* code block
+* callout
+* note
+* warning
 
-When data is removed or transformed, explain why through logs or metrics.
-
-Processing decisions should be observable and auditable.
-
----
-
-## Validation Requirements
-
-Never assume transformations are correct.
-
-Validate outputs using measurable checks.
-
-Prefer:
-
-* before vs after comparisons
-* retention metrics
-* structural integrity checks
-* representative sample reviews
-
-When possible, validate small samples before processing entire datasets.
+For each block compute a boilerplate score using multiple independent signals.
 
 ---
 
-## Content Preservation
+### Signal 1: Document Frequency
 
-Preserve:
+Measure how frequently a block (or mathematically normalized block) appears across the corpus.
 
-* hierarchical structure
-* semantic relationships
-* procedural information
+Generate:
+
+* document frequency
+* corpus occurrence percentage
+
+Interpretation:
+
+* > 5% → candidate boilerplate
+* > 20% → strong candidate
+* > 50% → high-confidence candidate
+
+Frequency alone must never trigger deletion.
+
+---
+
+### Signal 2: Position
+
+Evaluate where the block appears:
+
+* near beginning of document
+* near end of document
+* middle of document
+
+Navigation and footer elements often cluster near document boundaries.
+
+Position alone must never trigger deletion.
+
+---
+
+### Signal 3: Link Density
+
+Measure:
+
+* number of links
+* ratio of link tokens to text tokens
+
+Blocks containing mostly links are stronger boilerplate candidates.
+
+---
+
+### Signal 4: Information Density
+
+Reward blocks containing:
+
+* explanations
+* concepts
+* procedures
 * examples
-* references
-* explanatory context
-* code samples
-* structured data
+* technical descriptions
+* architecture discussions
 
-Avoid transformations that flatten, truncate, or obscure meaning.
+Penalize blocks containing:
 
-Structure is often as important as content.
+* mostly links
+* short navigation labels
+* repetitive directory structures
 
 ---
 
-## Metadata Strategy
+### Signal 5: Structural Context
 
-Capture metadata whenever it provides future value.
+Consider neighboring blocks.
 
 Examples:
 
-* source identifiers
-* timestamps
-* document hierarchy
-* content classifications
-* processing statistics
-* structural attributes
+* large clusters of short link-heavy blocks
+* repeated navigation structures
+* repeated footer structures
 
-Metadata should enrich data without contaminating the original content.
-
-Prefer separate metadata fields over embedding metadata into content.
+Treat surrounding context as evidence.
 
 ---
 
-## Implementation Approach
+### Signal 6: Content Diversity
 
-When implementing a feature:
+Evaluate:
 
-1. Understand the data.
-2. Define success criteria.
-3. Implement the smallest useful solution.
-4. Add validation.
-5. Measure outcomes.
-6. Scale only after validation succeeds.
+* unique word ratio
+* semantic richness
+* technical vocabulary density
 
-Prefer iterative improvement over large rewrites.
+Navigation blocks generally have low diversity.
 
----
-
-## Debugging Approach
-
-When quality issues occur:
-
-1. Identify where the issue enters the pipeline.
-2. Validate assumptions with data.
-3. Measure impact.
-4. Fix the root cause.
-5. Re-run validation.
-
-Do not compensate for upstream defects with downstream workarounds.
-
-Fix problems at their source whenever possible.
+Technical content generally has higher diversity.
 
 ---
 
-## Engineering Decision Making
+## Preservation Rules
 
-Base decisions on evidence rather than assumptions.
+Always strongly favor preserving:
 
-Before introducing complexity:
+* headings
+* heading hierarchy
+* technical explanations
+* procedures
+* numbered steps
+* examples
+* notes
+* warnings
+* best practices
+* limitations
+* architecture descriptions
+* code blocks
+* configuration snippets
+* API examples
+* tables
+* schemas
 
-* measure current behavior
-* quantify the problem
-* estimate impact
-* justify the change
-
-Avoid premature optimization.
-
-Favor clarity, correctness, and maintainability.
+These elements may contribute to retrieval quality and should never be removed based solely on frequency or position.
 
 ---
 
-## Expected Mindset
+## Confidence Tiers & Removal Rules
 
-Act like an engineer responsible for long-term data quality.
+Remove a block only when strict confidence tiers are met. Do not remove based on a single generic score.
 
-Optimize for:
+Example tiers:
+* **Tier 1 (Obvious Chrome)**: Extremely high document frequency combined with very low word count.
+* **Tier 2 (Multi-Signal Match)**: Elevated boilerplate score combined with independent triggers from at least two distinct signals (e.g., edge-of-document AND low diversity).
+* **Tier 3 (Link Walls)**: Highly repetitive blocks consisting almost entirely of links.
 
-* correctness
-* reproducibility
-* observability
-* maintainability
-* scalability
+Require multiple independent signals before removal. Avoid single-rule decisions.
 
-Do not optimize for short-term convenience at the expense of data integrity.
+---
+
+## Explainability
+
+Every removed block must include a reason.
+
+Generate comprehensive reports (e.g., removed blocks, triggered signals).
+
+For each removal log:
+
+* content preview
+* document frequency
+* position
+* link density
+* boilerplate score
+* removal reason
+* which independent signals were triggered
+
+All removals must be transparent and auditable.
+
+---
+
+## Validation
+
+Generate:
+
+* boilerplate detection reports
+* removed blocks reports
+* review sets
+
+Measure:
+
+* content retention percentage
+* heading retention
+* code retention
+* table retention
+* boilerplate reduction
+
+---
+
+## Review Set
+
+Generate representative examples showing:
+
+1. Original block
+2. Boilerplate score
+3. Removal decision
+4. Justification (signals triggered)
+
+Include:
+
+* removed blocks
+* preserved blocks
+* borderline cases (blocks that scored high but narrowly survived)
+
+The goal is to verify that meaningful content is not being removed and to continually tune the heuristic confidence tiers.
+
+---
+
+## Success Criteria
+
+The resulting system should:
+
+* remove navigation artifacts
+* remove footer artifacts
+* remove repeated website chrome
+* preserve technical content
+* preserve document structure
+* preserve code blocks
+* preserve tables
+* preserve examples
+* remain completely source-agnostic
+* remain explainable and auditable
+
+Optimize for content preservation and retrieval quality over aggressive cleaning.

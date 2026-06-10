@@ -1,8 +1,11 @@
 # Data directories (local-only, not versioned)
+archive/
 raw_docs/
+raw_html/
 processed_docs/
 chunks/
 embeddings/
+retrieval/
 
 # Python artifacts
 __pycache__/
