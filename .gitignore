@@ -1,5 +1,4 @@
 # Data directories (local-only, not versioned)
-archive/
 raw_docs/
 raw_html/
 processed_docs/

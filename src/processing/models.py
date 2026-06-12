@@ -1,7 +1,7 @@
-
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Any
+from typing import List, Optional
 from src.crawling.metadata import CrawledDocument
+
 
 class BlockMetrics(BaseModel):
     is_heading: bool = False
@@ -17,6 +17,7 @@ class BlockMetrics(BaseModel):
     unique_word_ratio: float = 0.0
     context_penalty: float = 0.0
 
+
 class Block(BaseModel):
     content: str
     content_hash: str
@@ -25,6 +26,7 @@ class Block(BaseModel):
     triggered_signals: List[str] = Field(default_factory=list)
     is_removed: bool = False
     removal_reason: Optional[str] = None
+
 
 class ProcessingStats(BaseModel):
     words_before: int = 0
@@ -44,6 +46,7 @@ class ProcessingStats(BaseModel):
     tables_after: int = 0
     blocks_removed: int = 0
     blocks_retained: int = 0
+
 
 class ProcessedDocument(CrawledDocument):
     cleaned_markdown: str = ""

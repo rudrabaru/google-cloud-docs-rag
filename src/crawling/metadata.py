@@ -5,24 +5,36 @@ Ensures type safety and consistent data structure across the pipeline.
 
 from datetime import datetime
 from typing import List, Optional
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field
 
 
 class CrawledDocument(BaseModel):
     """Schema for a crawled document with metadata."""
-    
+
     url: str = Field(..., description="Full URL of the crawled page")
-    title: Optional[str] = Field(None, description="Page title extracted from <title> or <h1>")
-    markdown_content: str = Field(..., description="Cleaned markdown body content from page")
-    crawl_depth: int = Field(..., description="Depth at which this page was crawled (0=root)")
-    crawled_at: datetime = Field(default_factory=datetime.utcnow, description="Timestamp of crawl")
+    title: Optional[str] = Field(
+        None, description="Page title extracted from <title> or <h1>"
+    )
+    markdown_content: str = Field(
+        ..., description="Cleaned markdown body content from page"
+    )
+    crawl_depth: int = Field(
+        ..., description="Depth at which this page was crawled (0=root)"
+    )
+    crawled_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Timestamp of crawl"
+    )
     source_url: Optional[str] = Field(None, description="URL that linked to this page")
-    outgoing_links: List[str] = Field(default_factory=list, description="Links found on this page")
+    outgoing_links: List[str] = Field(
+        default_factory=list, description="Links found on this page"
+    )
     word_count: int = Field(0, description="Word count of markdown_content")
-    status_code: Optional[int] = Field(None, description="HTTP status code when crawled")
+    status_code: Optional[int] = Field(
+        None, description="HTTP status code when crawled"
+    )
     error: Optional[str] = Field(None, description="Error message if crawl failed")
     raw_html: Optional[str] = Field(None, exclude=True, description="Raw HTML content")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -31,7 +43,9 @@ class CrawledDocument(BaseModel):
                 "markdown_content": "# Load Balancing Overview\n\nLoad balancing...",
                 "crawl_depth": 1,
                 "crawled_at": "2026-05-28T10:00:00",
-                "outgoing_links": ["https://docs.cloud.google.com/load-balancing/docs/features"],
+                "outgoing_links": [
+                    "https://docs.cloud.google.com/load-balancing/docs/features"
+                ],
                 "word_count": 1500,
                 "status_code": 200,
             }
@@ -40,21 +54,26 @@ class CrawledDocument(BaseModel):
 
 class CrawlConfig(BaseModel):
     """Configuration for the crawler."""
-    
+
     start_url: str = Field(..., description="Root URL to start crawling")
     max_depth: int = Field(3, description="Maximum crawl depth")
     max_pages: int = Field(300, description="Maximum pages to crawl")
     soft_limit_pages: int = Field(1000, description="Soft limit for logging")
     warning_limit_pages: int = Field(5000, description="Warning limit threshold")
     abort_limit_pages: int = Field(10000, description="Hard limit to abort crawl")
-    allowed_domains: List[str] = Field(default_factory=list, description="List of allowed domains (if empty, use start_url domain)")
+    allowed_domains: List[str] = Field(
+        default_factory=list,
+        description="List of allowed domains (if empty, use start_url domain)",
+    )
     exclude_patterns: List[str] = Field(
         default_factory=lambda: [r".*\.pdf$", r".*\.jpg$", r".*\.png$", r".*\?page="],
-        description="URL patterns to exclude (regex)"
+        description="URL patterns to exclude (regex)",
     )
     timeout_seconds: int = Field(30, description="HTTP request timeout")
-    delay_seconds: float = Field(0.5, description="Delay between requests to avoid rate limiting")
-    
+    delay_seconds: float = Field(
+        0.5, description="Delay between requests to avoid rate limiting"
+    )
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -71,7 +90,7 @@ class CrawlConfig(BaseModel):
 
 class CrawlMetrics(BaseModel):
     """Metrics from a crawl run."""
-    
+
     total_urls_attempted: int = 0
     total_urls_crawled: int = 0
     total_urls_failed: int = 0
@@ -79,7 +98,7 @@ class CrawlMetrics(BaseModel):
     total_words: int = 0
     crawl_duration_seconds: float = 0.0
     average_page_words: float = 0.0
-    
+
     def __str__(self):
         return f"""
 Crawl Metrics:
@@ -92,14 +111,18 @@ Crawl Metrics:
   - Avg Words/Page: {self.average_page_words:.0f}
         """
 
+
 class CrawlFailure(BaseModel):
     """Schema for a failed crawl attempt."""
+
     url: str
     error: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
+
 class CrawlManifestEntry(BaseModel):
     """Schema for a successful crawl attempt in the manifest."""
+
     url: str
     status: str = "success"
     timestamp: datetime = Field(default_factory=datetime.utcnow)

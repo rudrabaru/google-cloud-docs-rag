@@ -330,6 +330,34 @@ establish a baseline and demonstrate that the simpler approach is insufficient.
 
 Favor evidence-driven improvements over complexity-driven improvements.
 
+# Evaluation Dataset Quality
+
+Evaluation datasets must measure retrieval usefulness rather than exact document matching.
+
+Avoid evaluation schemes that assume a query has only one valid source document.
+
+Prefer:
+
+* acceptable documents
+* acceptable sections
+* acceptable heading paths
+* topic-level relevance
+
+over strict document identity matching.
+
+A retrieval result may be correct even if it originates from a different document than originally expected.
+
+Evaluation datasets should:
+
+* contain representative query types
+* include varying difficulty levels
+* cover multiple retrieval scenarios
+* remain reproducible across evaluation runs
+
+Treat evaluation dataset quality as a measurable system component.
+
+Poor evaluation datasets can invalidate retrieval metrics.
+
 # Corpus Audit Rule
 
 Before rebuilding any upstream pipeline stage:
@@ -406,6 +434,28 @@ When metrics improve, verify that:
 * behavior generalizes beyond evaluation examples
 
 Optimize for robust system quality rather than benchmark scores alone.
+
+# Retrieval Benchmark Integrity
+
+Before concluding that retrieval quality is poor:
+
+1. Validate the evaluation dataset.
+2. Validate expected answers.
+3. Validate acceptable sources.
+4. Validate failure classifications.
+
+Do not optimize retrieval against a flawed benchmark.
+
+When retrieval metrics appear unexpectedly low:
+
+* inspect representative examples
+* verify expected documents
+* verify topic relevance
+* verify evaluation assumptions
+
+Benchmark quality should be audited before retrieval architecture is modified.
+
+Treat evaluation quality and retrieval quality as separate concerns.
 
 # Retrieval Observability
 
@@ -640,6 +690,32 @@ Versioning rules apply to all existing and future pipeline stages.
 Do not introduce alternative versioning schemes.
 
 If already one run is done on any phase, then use v+1 for the next run and mention v1 for the first one if not mentioned initially.
+
+# Evaluation Versioning
+
+Evaluation runs should be versioned independently from retrieval implementations.
+
+Examples:
+
+retrieval/
+└── v1/
+└── evaluations/
+├── v1/
+├── v2/
+└── vN/
+
+A new evaluation version should be created when:
+
+* evaluation datasets change
+* evaluation logic changes
+* failure categorization changes
+* benchmark methodology changes
+
+Do not create a new retrieval version solely because an evaluation was rerun.
+
+Retrieval versions represent implementation changes.
+
+Evaluation versions represent benchmark runs.
 
 # Artifact Consistency
 

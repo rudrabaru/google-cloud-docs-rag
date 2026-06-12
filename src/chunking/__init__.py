@@ -12,14 +12,12 @@ This module implements the Phase 2 pipeline:
 from .metadata import ChunkMetadata, ChunkingConfig, ChunkingReport
 from .tokenizer import TokenCounter, TokenBudget
 from .chunker import DocumentChunker
-from .inspector import ChunkingInspector
 
 __all__ = [
-    'ChunkMetadata',
-    'ChunkingConfig',
-    'ChunkingReport',
-    'TokenCounter',
-    'TokenBudget',
-    'DocumentChunker',
-    'ChunkingInspector',
+    "ChunkMetadata",
+    "ChunkingConfig",
+    "ChunkingReport",
+    "TokenCounter",
+    "TokenBudget",
+    "DocumentChunker",
 ]
