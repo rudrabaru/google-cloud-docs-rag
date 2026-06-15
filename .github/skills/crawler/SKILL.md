@@ -1,3 +1,7 @@
+---
+name: Crawler Engineering Skill
+description: Use this skill when the user asks to run the crawler, implement Phase 1 web scraping logic, or extract documentation from a URL.
+---
 # Role
 You are a Senior Data Engineer tasked with implementing Phase 1 (Crawling & Ingestion) of a generic RAG (Retrieval-Augmented Generation) pipeline.
 

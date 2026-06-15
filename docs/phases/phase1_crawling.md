@@ -16,7 +16,8 @@ All output artifacts are strictly versioned. When a crawl completes, a new seman
 
 ## Tradeoffs
 - **Naive Markdown Extraction**: By relying on a generic markdown converter, the system initially captures some unnecessary navigation elements (sidebars, footers). This is an explicit tradeoff to maintain a purely domain-agnostic crawler, delegating site-specific noise removal to the subsequent Processing phase.
+- **Client-Side Rendering Limits**: The current HTTP-based crawler evaluates static HTML and does not execute JavaScript. Highly dynamic SPAs may require headless browser rendering extensions.
 
 ## Potential Failure Modes
-- **Aggressive Rate Limits**: If a site employs aggressive rate limiting or bot protection, the crawler may encounter HTTP 403 or timeouts.
-- **Infinite Traversal Loops**: Sites with dynamic or cyclical linking structures could trap the crawler. Maximum depth and total page limits are enforced as critical safety bounds to prevent infinite loops.
+- Infinite traversal loops if bounding constraints (depth/allowed domains) are misconfigured.
+- Throttling or IP blocking by target domains if rate limits are exceeded.

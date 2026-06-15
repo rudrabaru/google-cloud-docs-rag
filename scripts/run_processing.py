@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.processing.cleaner import DocumentCleaner
+from src.processing.pipeline import ProcessingPipeline
 from scripts.version_utils import get_latest_version, get_next_version
 
 
@@ -46,10 +46,8 @@ def main():
 
     print(f"Starting Phase 2 Processing -> Output Version: {next_processed}")
 
-    cleaner = DocumentCleaner(
-        input_dir=input_dir, output_dir=output_dir, metrics_dir=metrics_dir
-    )
-    cleaner.process_all()
+    pipeline = ProcessingPipeline(raw_dir=str(input_dir), output_dir=str(output_dir))
+    pipeline.run()
 
 
 if __name__ == "__main__":

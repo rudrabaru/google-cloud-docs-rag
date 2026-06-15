@@ -1,3 +1,7 @@
+---
+name: Semantic Chunker Skill
+description: Use this skill when the user asks to modify chunking logic, adjust token limits, or debug Phase 3 structural partitioning.
+---
 # Role
 You are a Semantic Engineering Expert tasked with implementing Phase 3 (Semantic Chunking) of a generic RAG (Retrieval-Augmented Generation) pipeline.
 

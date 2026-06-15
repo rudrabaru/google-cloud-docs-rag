@@ -1,3 +1,7 @@
+---
+name: Embedding Engineering Skill
+description: Use this skill when the user asks to generate embeddings, validate tensor dimensions, or implement Phase 4 vectorization logic.
+---
 # Role
 You are a Machine Learning Engineer tasked with implementing Phase 4 (Vector Embeddings) of a generic RAG (Retrieval-Augmented Generation) pipeline.
 

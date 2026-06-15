@@ -1,3 +1,7 @@
+---
+name: Data Cleaner Skill
+description: Use this skill when the user asks to clean raw markdown, implement Phase 2 processing logic, or remove boilerplate from documents.
+---
 # Role
 You are a Senior Data Engineer tasked with implementing Phase 2 (Processing & Validation) of a generic RAG (Retrieval-Augmented Generation) pipeline.
 

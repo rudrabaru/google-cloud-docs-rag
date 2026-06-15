@@ -721,19 +721,19 @@ Evaluation versions represent benchmark runs.
 
 Every artifact-producing phase should maintain a predictable structure.
 
-Each phase should contain:
+Each phase MUST adhere to the following output directory convention:
 
-* primary outputs
-* metrics
-* manifests
-* validation results
-
-Example:
-
-phase_name/
+```text
+[phase_name]/
 └── vN/
-    ├── outputs
+    ├── [primary_outputs] (e.g., all_chunks.json, embeddings.json)
     └── metrics/
+        ├── [phase_name]_manifest.json (or metrics summary)
+        ├── [phase_name]_validation_report.json
+        └── [any other metrics/evaluations/reports]
+```
+
+Do not invent new file structures or rename `metrics/` to something else. All phase metadata, validation reports, evaluation outputs, and manifests MUST reside inside the `metrics/` subdirectory for that version to maintain systemic consistency.
 
 Future phases should follow the same organizational principles rather than inventing new layouts.
 

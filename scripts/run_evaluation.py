@@ -177,7 +177,9 @@ def main():
         return
 
     metrics_dir = base_embeddings_dir / embed_version / "metrics"
-    manifest_path = metrics_dir / "embedding_manifest.json"
+    manifest_path = metrics_dir / "embedding_validation_report.json"
+    if not manifest_path.exists():
+        manifest_path = metrics_dir / "embedding_manifest.json"
 
     with open(manifest_path, "r", encoding="utf-8") as f:
         manifest = json.load(f)

@@ -23,6 +23,29 @@ class EmbeddingValidator:
     def __init__(self, config: EmbeddingConfig = None):
         self.config = config or EmbeddingConfig()
 
+    def validate(self, embeddings: List[EmbeddedChunk]) -> Dict:
+        if not embeddings:
+            return {"is_valid": False, "reason": "No embeddings provided"}
+        
+        dim = len(embeddings[0].embedding)
+        if dim != self.config.expected_dimensions:
+            return {"is_valid": False, "reason": f"Expected dimension {self.config.expected_dimensions}, got {dim}"}
+        
+        zero_vectors = 0
+        for emb in embeddings:
+            if len(emb.embedding) != dim:
+                return {"is_valid": False, "reason": "Inconsistent dimensions found."}
+            norm = sum(x*x for x in emb.embedding)
+            if norm < 1e-5:
+                zero_vectors += 1
+                
+        return {
+            "is_valid": zero_vectors == 0,
+            "dimension": dim,
+            "zero_vectors": zero_vectors,
+            "total_embeddings": len(embeddings)
+        }
+
     def _load_all_chunks(self, embeddings_dir: str) -> List[EmbeddedChunk]:
         path = Path(embeddings_dir)
         files = list(path.glob("*.json"))

@@ -5,6 +5,7 @@ processed_docs/
 chunks/
 embeddings/
 retrieval/
+.chroma_db/
 
 # Python artifacts
 __pycache__/

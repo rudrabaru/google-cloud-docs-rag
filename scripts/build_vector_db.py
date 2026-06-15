@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.retrieving.vector_store import ChromaDBManager
+from src.embedding.models import EmbeddedChunk
 from scripts.version_utils import get_latest_version
 
 
@@ -35,16 +36,18 @@ def main():
 
     embeddings_file = base_embeddings_dir / latest_version / "embeddings.json"
     manifest_file = (
-        base_embeddings_dir / latest_version / "metrics" / "embedding_manifest.json"
+        base_embeddings_dir / latest_version / "metrics" / "embedding_validation_report.json"
     )
 
     if not embeddings_file.exists() or not manifest_file.exists():
-        print("Error: Missing embeddings.json or embedding_manifest.json")
+        print("Error: Missing embeddings.json or embedding_validation_report.json")
         return
 
     print(f"Loading embeddings from {latest_version}...")
     with open(embeddings_file, "r", encoding="utf-8") as f:
-        embeddings_data = json.load(f)
+        embeddings_raw = json.load(f)
+        
+    embeddings_data = [EmbeddedChunk(**e) for e in embeddings_raw]
 
     with open(manifest_file, "r", encoding="utf-8") as f:
         manifest = json.load(f)
@@ -56,9 +59,9 @@ def main():
     )
 
     print(
-        f"Upserting {len(embeddings_data)} embeddings to collection '{args.collection_name}' (Metric: {distance_metric})..."
+        f"Loading {len(embeddings_data)} embeddings to collection '{args.collection_name}' (Metric: {distance_metric})..."
     )
-    db_manager.upsert_embeddings(embeddings_data)
+    db_manager.load_chunks(embeddings_data)
     print("Done!")
 
 

@@ -21,7 +21,7 @@ class URLFilter:
         Args:
             allowed_domains: List of allowed domain patterns (e.g., ["docs.cloud.google.com"])
                            If empty, all domains are allowed.
-            exclude_patterns: List of regex patterns to exclude (e.g., [r".*\.pdf$"])
+            exclude_patterns: List of regex patterns to exclude (e.g., [r".*\\.pdf$"])
             allow_pagination: If False, exclude URLs with pagination params (?page=, ?offset=, etc.)
         """
         self.allowed_domains = allowed_domains or []

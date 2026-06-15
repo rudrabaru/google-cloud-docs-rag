@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.chunking.chunker import SemanticChunker
+from src.chunking.chunker import DocumentChunker
 from scripts.version_utils import get_latest_version, get_next_version
 
 
@@ -42,11 +42,11 @@ def main():
 
     print(f"Starting Phase 3 Chunking -> Output Version: {next_chunks}")
 
-    chunker = SemanticChunker()
+    chunker = DocumentChunker()
     docs = []
 
     for filepath in input_dir.rglob("*.json"):
-        if filepath.parent.name == "metrics":
+        if filepath.parent.name in ["metrics", "review"]:
             continue
         with open(filepath, "r", encoding="utf-8") as f:
             docs.append(json.load(f))
@@ -67,7 +67,7 @@ def main():
 
     chunks_file = output_dir / "all_chunks.json"
     with open(chunks_file, "w", encoding="utf-8") as f:
-        json.dump([c.dict() for c in all_chunks], f, indent=2)
+        json.dump([json.loads(c.model_dump_json()) for c in all_chunks], f, indent=2)
 
     print(f"Saved chunks to {chunks_file}")
 

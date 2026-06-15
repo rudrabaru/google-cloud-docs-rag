@@ -1,3 +1,7 @@
+---
+name: Retrieval & Evaluation Skill
+description: Use this skill when the user asks to retrieve chunks, execute semantic searches, query the vector database, or evaluate Phase 5 retrieval metrics.
+---
 # Role
 You are an Evaluation Architect tasked with implementing Phase 5 (Retrieval & Evaluation) of a generic RAG (Retrieval-Augmented Generation) pipeline.
 
