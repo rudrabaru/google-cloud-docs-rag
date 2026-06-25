@@ -67,18 +67,23 @@ class ProcessingPipeline:
             pdoc.processing_stats.blocks_removed = removed_blocks
             pdoc.processing_stats.blocks_retained = retained_blocks
 
-            # Generic page type classification based on URL paths
-            url_lower = pdoc.url.lower()
-            if "/tutorial" in url_lower or "/example" in url_lower:
-                pdoc.page_category = "tutorial"
-            elif "/api" in url_lower or "/reference" in url_lower:
-                pdoc.page_category = "reference"
-            elif (
-                "/overview" in url_lower
-                or pdoc.url.endswith("/docs")
-                or pdoc.url.endswith("/docs/")
-            ):
+            # Structural page type classification based on content signals.
+            # This is corpus-independent: driven by block metrics, not URL keywords.
+            total_blocks = len(cleaned_blocks)
+            code_blocks = sum(1 for b in cleaned_blocks if b.metrics.is_code)
+            list_blocks = sum(1 for b in cleaned_blocks if b.metrics.is_list)
+
+            if total_blocks == 0:
+                pdoc.page_category = "uncategorized"
+            elif total_blocks <= 5:
+                # Very short pages are likely overview/landing pages
                 pdoc.page_category = "overview"
+            elif total_blocks > 0 and (code_blocks / total_blocks) >= 0.3:
+                # High code density → reference or API-style page
+                pdoc.page_category = "reference"
+            elif total_blocks > 0 and (list_blocks / total_blocks) >= 0.25:
+                # High list density → step-by-step tutorial or guide
+                pdoc.page_category = "tutorial"
             else:
                 pdoc.page_category = "guide"
 
@@ -109,7 +114,7 @@ class ProcessingPipeline:
         print("Generating reports...")
         report = ProcessingValidator.generate_corpus_report(processed_docs)
         with open(
-            self.output_dir / "metrics" / "processing_report.json",
+            self.output_dir / "metrics" / "processing_manifest.json",
             "w",
             encoding="utf-8",
         ) as f:

@@ -6,6 +6,7 @@ chunks/
 embeddings/
 retrieval/
 .chroma_db/
+.env
 
 # Python artifacts
 __pycache__/

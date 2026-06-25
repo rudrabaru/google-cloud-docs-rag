@@ -2,6 +2,7 @@ import sys
 import os
 import json
 import argparse
+import pickle
 from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -9,6 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.retrieving.vector_store import ChromaDBManager
 from src.embedding.models import EmbeddedChunk
 from scripts.version_utils import get_latest_version
+from rank_bm25 import BM25Okapi
 
 
 def main():
@@ -62,6 +64,23 @@ def main():
         f"Loading {len(embeddings_data)} embeddings to collection '{args.collection_name}' (Metric: {distance_metric})..."
     )
     db_manager.load_chunks(embeddings_data)
+    
+    print("Building BM25 sparse index...")
+    # Simple tokenization for BM25
+    tokenized_corpus = [chunk.chunk_text.lower().split() for chunk in embeddings_data]
+    bm25 = BM25Okapi(tokenized_corpus)
+    
+    bm25_data = {
+        "bm25": bm25,
+        "chunks": [chunk.model_dump() for chunk in embeddings_data]
+    }
+    
+    bm25_file = base_embeddings_dir / latest_version / "bm25_index.pkl"
+    with open(bm25_file, 'wb') as f:
+        pickle.dump(bm25_data, f)
+        
+    print(f"BM25 index saved to {bm25_file}")
+    
     print("Done!")
 
 

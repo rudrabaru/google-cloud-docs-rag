@@ -5,11 +5,14 @@ Extracts structured markdown content and metadata from web pages.
 
 import json
 import time
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 from urllib.parse import urljoin, urlparse
 import logging
+import urllib.request
+import xml.etree.ElementTree as ET
 
 from crawl4ai import AsyncWebCrawler, CrawlResult
 from .metadata import (
@@ -54,7 +57,7 @@ class WebCrawler:
         self.crawled_docs: List[CrawledDocument] = []
         self.failures: List[CrawlFailure] = []
         self.manifest: List[CrawlManifestEntry] = []
-        self.queue: List[tuple[str, int]] = [(config.start_url, 0)]  # (url, depth)
+        self.queue: deque[tuple[str, int]] = deque([(config.start_url, 0)])  # (url, depth)
 
     async def crawl(self) -> List[CrawledDocument]:
         """
@@ -103,7 +106,7 @@ class WebCrawler:
                     ):
                         self._log_progress(start_time)
 
-                    url, depth = self.queue.pop(0)
+                    url, depth = self.queue.popleft()  # O(1) with deque
 
                     # Skip if already processed
                     if url in processed_urls:
@@ -190,6 +193,19 @@ class WebCrawler:
             raw_html = None
             if hasattr(result, "html") and result.html:
                 raw_html = result.html
+
+            if raw_html:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(raw_html, "html.parser")
+                html_tag = soup.find("html")
+                if html_tag and html_tag.has_attr("lang"):
+                    lang = html_tag["lang"].lower()
+                    if not lang.startswith("en"):
+                        logger.info(f"Skipping {url} (Language: {lang})")
+                        self.failures.append(
+                            CrawlFailure(url=url, error=f"Skipped non-English language: {lang}")
+                        )
+                        return None
 
             if not markdown_content:
                 logger.warning(f"No markdown content extracted from {url}")
@@ -401,9 +417,40 @@ class WebCrawler:
         return target_dir
 
 
+def fetch_sitemap_urls(sitemap_url: str) -> List[str]:
+    """
+    Fetch and parse an XML sitemap to extract all URL locations.
+    Handles standard sitemap.xml formats including sitemap index files.
+    """
+    urls = []
+    try:
+        req = urllib.request.Request(sitemap_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            xml_data = response.read()
+            
+        root = ET.fromstring(xml_data)
+        # XML namespaces usually used in sitemaps: {http://www.sitemaps.org/schemas/sitemap/0.9}
+        # To handle namespaces generically, we can strip them or use a wildcard search.
+        for elem in root.iter():
+            # In XML, tags might look like '{http://...}url' or '{http://...}sitemap'
+            tag = elem.tag.split('}', 1)[-1]
+            if tag in ('loc',):
+                if elem.text and elem.text.strip():
+                    urls.append(elem.text.strip())
+                    
+            # If it's a sitemap index, we might need to fetch sub-sitemaps (recursive)
+            # For simplicity, we just extract all <loc> tags which will either be page URLs or sub-sitemap URLs.
+            # If they are sub-sitemap URLs, the caller would need to handle them, but let's assume a flat sitemap for now.
+    except Exception as e:
+        logger.error(f"Failed to fetch or parse sitemap {sitemap_url}: {e}")
+    
+    return list(set(urls))
+
+
 # Generic convenience function for crawling
 async def run_crawler(
-    start_url: str,
+    start_url: str = None,
+    sitemap_url: str = None,
     allowed_domains: List[str] = None,
     required_keywords: List[str] = None,
     exclude_patterns: List[str] = None,
@@ -420,7 +467,8 @@ async def run_crawler(
     Run the crawler with generic configuration.
 
     Args:
-        start_url: Starting URL
+        start_url: Starting URL (required if sitemap_url is not provided)
+        sitemap_url: URL to an XML sitemap to seed the crawl queue.
         allowed_domains: List of allowed domains
         required_keywords: Path keywords to require
         exclude_patterns: Regex patterns to exclude
@@ -436,9 +484,12 @@ async def run_crawler(
     Returns:
         List of crawled documents
     """
+    if not start_url and not sitemap_url:
+        raise ValueError("Must provide either start_url or sitemap_url")
+        
     config = CrawlConfig(
-        start_url=start_url,
-        max_depth=max_depth,
+        start_url=start_url or sitemap_url,
+        max_depth=max_depth if not sitemap_url else (max_depth if max_depth != 3 else 0),
         max_pages=max_pages,
         soft_limit_pages=soft_limit_pages,
         warning_limit_pages=warning_limit_pages,
@@ -446,18 +497,14 @@ async def run_crawler(
     )
 
     if exclude_patterns is None:
+        # Default: only exclude binary/non-text file types.
+        # Path-based exclusions are corpus-specific and must be passed by the caller.
         exclude_patterns = [
             r".*\.pdf$",
             r".*\.jpg$",
             r".*\.png$",
             r".*\.gif$",
             r".*\.(zip|gz|tar)$",
-            r".*/api-ref/.*",
-            r".*/release-notes$",
-            r".*\/search.*",
-            r".*\/login.*",
-            r".*\/feedback.*",
-            r".*\/support.*",
         ]
 
     url_filter = ConfigurableURLFilter(
@@ -469,6 +516,23 @@ async def run_crawler(
     )
 
     crawler = WebCrawler(config, url_filter, output_dir=output_dir, html_dir=html_dir)
+
+    if sitemap_url:
+        logger.info(f"Fetching sitemap from {sitemap_url}")
+        sitemap_urls = fetch_sitemap_urls(sitemap_url)
+        logger.info(f"Found {len(sitemap_urls)} URLs in sitemap")
+        
+        valid_urls = [u for u in sitemap_urls if url_filter.should_crawl(u)]
+        logger.info(f"Filtered to {len(valid_urls)} valid URLs")
+        
+        crawler.queue.clear()
+        for u in valid_urls:
+            crawler.queue.append((u, 0))
+            
+        if max_depth > 0:
+            logger.warning("Using sitemap with max_depth > 0. Crawler will follow outgoing links from sitemap URLs.")
+        else:
+            logger.info("Using sitemap with max_depth = 0. Crawler will only process sitemap URLs.")
 
     docs = await crawler.crawl()
     crawler.save_summary(metrics_dir=metrics_dir)

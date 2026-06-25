@@ -86,15 +86,14 @@ def main():
 
                 raw_path = chunk.metadata.get("heading_path", "")
                 try:
-                    heading_path = (
-                        json.loads(raw_path) if isinstance(raw_path, str) else raw_path
-                    )
+                    parsed = json.loads(raw_path) if isinstance(raw_path, str) else raw_path
                     path_str = (
-                        " > ".join(heading_path)
-                        if isinstance(heading_path, list)
-                        else str(heading_path)
+                        " > ".join(parsed)
+                        if isinstance(parsed, list)
+                        else str(parsed)
                     )
-                except Exception:
+                except (json.JSONDecodeError, TypeError):
+                    # Legacy fallback: if stored as " > " joined string
                     path_str = str(raw_path)
 
                 print(f"[{i+1}] Score: {score:.4f}")

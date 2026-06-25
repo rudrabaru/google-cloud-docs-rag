@@ -662,9 +662,8 @@ Examples:
 * processed documents (processed_docs/vN)
 * chunks (chunks/vN)
 * embeddings (embeddings/vN)
-* retrieval results (retrieval_results/vN)
-* evaluation datasets (evaluation_datasets/vN)
-* evaluation reports (evaluation_reports/vN)
+* evaluation datasets (stored flat in `evaluation_datasets/`, not versioned — datasets are permanent inputs)
+* evaluation reports (stored under the relevant phase version, e.g. `retrieval/vN/evaluations/vN/`)
 * reranking outputs (reranking_outputs/vN)
 
 Use:
@@ -737,10 +736,88 @@ Do not invent new file structures or rename `metrics/` to something else. All ph
 
 Future phases should follow the same organizational principles rather than inventing new layouts.
 
+# End-to-End Evaluation Tracking
+
+The system must support evaluation at every major pipeline stage, not just retrieval.
+
+## Dataset vs Results Separation
+
+Evaluation datasets and evaluation results are two distinct concerns and MUST be stored separately:
+
+```text
+evaluation_datasets/                         ← ground truth only; never modified by pipeline runs
+    <corpus>_eval.json
+
+retrieval/<vN>/evaluations/<vN>/             ← retrieval-stage results per run
+    evaluation_metrics.json
+    evaluation_evidence_report.json
+    retrieval_review_validation.json
+    benchmark_integrity_report.json
+    benchmark_reliability_report.json
+    evaluation_summary.md
+
+generation/<vN>/metrics/                     ← generation-stage results
+    generation_metrics.json
+    faithfulness_scores.json
+    generation_summary.md
+
+chunks/<vN>/metrics/                         ← chunking-stage quality
+    chunking_manifest.json
+    chunking_validation_report.json
+
+embeddings/<vN>/metrics/                     ← embedding-stage quality
+    embedding_validation_report.json
+    embedding_manifest.json
+```
+
+Never mix datasets (inputs) with results (outputs). A dataset is permanent and reusable across runs. A result belongs to a specific pipeline version.
+
+## What Must Be Evaluated at Each Stage
+
+**Phase 1 — Crawling:** Total pages crawled/failed, content length distribution, unique URL count. Save to `raw_docs/vN/metrics/crawl_manifest.json`.
+
+**Phase 2 — Processing:** Document count before/after cleaning, average content reduction ratio. Save to `processed_docs/vN/metrics/processing_manifest.json`.
+
+**Phase 3 — Chunking:** Chunk count, token distribution, heading depth coverage. Save to `chunks/vN/metrics/chunking_manifest.json`.
+
+**Phase 4 — Embedding:** Embedding dimension, batch success/failure count, nearest-neighbor sanity check. Save to `embeddings/vN/metrics/embedding_validation_report.json`.
+
+**Phase 5/6 — Retrieval:** Recall@1, Recall@3, Recall@5, MRR, per-difficulty and per-category breakdowns, evidence report. Save to `retrieval/vN/evaluations/vN/`.
+
+**Phase 7 — Generation:** Faithfulness score (LLM-as-judge), answer latency, token usage. Save to `generation/vN/metrics/`.
+
+## Proving Improvement
+
+To prove a change improved the system:
+
+1. Run evaluation BEFORE the change and save results under the current version.
+2. Implement the change and increment the version.
+3. Run evaluation AFTER the change and save under the new version.
+4. Compare metrics files side-by-side.
+
+A change is proven only when a metric improves without regression in another metric. Never claim improvement without a before/after evaluation file comparison.
+
+## Evaluation Script Contracts
+
+Every `run_evaluation.py` invocation must:
+- Accept a `--dataset` path pointing to a file in `evaluation_datasets/`
+- Write all result files into the appropriate `<phase>/vN/evaluations/vN/` directory
+- Never modify or overwrite the source dataset file
+- Print a human-readable summary to console AND persist machine-readable JSON
+
+## Stress Testing
+
+To understand where the system degrades:
+- Use hard-tier queries with synonyms, paraphrasing, and indirect references (not exact keyword matches)
+- After each major change (new corpus, new chunker, new retriever), re-run all difficulty tiers and compare
+- Document which categories fail and why in `docs/phases/`
+
 # Special Notes
 
-After each update requested by the user in the prompt, optimize the code for modularity, readability and maintainability, not just functionality. Refactor as needed to keep the codebase clean and understandable. Remove all unnecessary code and comments. Ensure that the code is well-organized and follows best practices for Python development.
+After each update, optimize the code for modularity, readability, and maintainability. Refactor as needed. Remove all unnecessary code and comments. Ensure the code is well-organized and follows best practices for Python development.
 
-Also update, the phase-wise documentation in the docs folder with clear explanations of the implementation, tradeoffs, and potential failure modes for each phase of the RAG pipeline. This documentation should be updated after each significant change to the codebase to ensure it remains accurate and helpful for future reference. Remember the docs folder should only contain documentation related to each phase of the RAG pipeline, not the code or bug fixes.
+Update the phase-wise documentation in the docs folder after each significant change to the codebase. The docs folder should only contain documentation related to each phase of the RAG pipeline, not code or bug fixes.
 
 Never remove content because of specific words. Remove content only because of measurable structural evidence.
+
+Whenever the user takes a different approach over any phase of the RAG pipeline, update the skills and documentation of that particular phase to reflect the new approach and its tradeoffs. Also update the README.md file as the project progresses based on the new features added or changes made.

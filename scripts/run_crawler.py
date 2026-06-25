@@ -16,8 +16,12 @@ async def main():
     parser.add_argument(
         "--seed_url",
         type=str,
-        required=True,
         help="The seed URL to start crawling from.",
+    )
+    parser.add_argument(
+        "--sitemap_url",
+        type=str,
+        help="The URL of the sitemap.xml to crawl.",
     )
     parser.add_argument(
         "--allowed_domains",
@@ -41,6 +45,10 @@ async def main():
         "--output_dir", type=str, default="raw_docs", help="Base directory for output."
     )
     args = parser.parse_args()
+    
+    if not args.seed_url and not args.sitemap_url:
+        print("Error: Must provide either --seed_url or --sitemap_url")
+        sys.exit(1)
 
     base_dir = Path(args.output_dir)
     next_version = get_next_version(base_dir)
@@ -52,6 +60,7 @@ async def main():
 
     await run_crawler(
         start_url=args.seed_url,
+        sitemap_url=args.sitemap_url,
         allowed_domains=args.allowed_domains,
         required_keywords=args.required_keywords,
         max_depth=args.max_depth,

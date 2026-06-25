@@ -36,6 +36,18 @@ Manages batch ingestion into a persistent ChromaDB instance. The dense retrieval
 A dedicated benchmarking suite that evaluates the retrieval pipeline against predefined, version-controlled datasets. It outputs rigorous metrics (Recall@K, MRR) and detailed evidence reports for iterative optimization.
 * **Execution**: `python scripts/run_evaluation.py`
 
+### Phase 7: Generation & LLM Routing
+The generation wrapper that constructs optimized prompts within strict token budgets. It features automatic Fallback Routing (e.g., dynamically falling back to Groq if Gemini hits rate limits) and supports LLM-as-a-judge for evaluating answer faithfulness.
+* **Execution**: `python scripts/run_generation.py`
+
+### Phase 8: Conversational RAG & Streaming API
+An advanced frontend-ready integration layer. It features a FastAPI server serving real-time SSE (Server-Sent Events) streaming, multi-turn chat history context injection, and Hybrid Search (combining Dense Chroma vectors with Sparse BM25 scoring via Reciprocal Rank Fusion).
+* **Execution**: `python src/api/main.py`
+
+### Observability Dashboard
+A real-time Streamlit dashboard that visualizes token usage, latency bottlenecks, chunk retention, and ingestion statistics by parsing the versioned JSON manifests.
+* **Execution**: `streamlit run scripts/dashboard.py`
+
 ## Repository Structure
 ```text
 ├── .github/skills/      # Modular AI-agent instructions dictating phase-specific architecture

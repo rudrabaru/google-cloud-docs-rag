@@ -5,7 +5,7 @@ import re
 from typing import List, Dict, Any
 
 from pydantic import BaseModel
-from .retriever import DenseRetriever
+from .retriever import DenseRetriever, OptionalReranker
 
 logger = logging.getLogger(__name__)
 
@@ -87,8 +87,9 @@ def is_sublist(sub: List[str], lst: List[str]) -> bool:
 
 
 class Evaluator:
-    def __init__(self, retriever: DenseRetriever):
+    def __init__(self, retriever: DenseRetriever, reranker: OptionalReranker = None):
         self.retriever = retriever
+        self.reranker = reranker
 
     def evaluate(
         self, queries: List[EvaluationQuery], top_k: int = 5
@@ -102,7 +103,14 @@ class Evaluator:
         rr_sum = 0.0
 
         for q in queries:
-            result = self.retriever.retrieve(q.query, top_k=top_k)
+            if self.reranker:
+                dense_result = self.retriever.retrieve(q.query, top_k=top_k * 4)
+                result = self.reranker.rerank(q.query, dense_result.chunks, top_k=top_k)
+                result.embedding_latency_ms = dense_result.embedding_latency_ms
+                result.search_latency_ms = dense_result.search_latency_ms
+                result.latency_ms += dense_result.latency_ms
+            else:
+                result = self.retriever.retrieve(q.query, top_k=top_k)
             latencies.append(result.latency_ms)
 
             chunk_infos = []
@@ -121,13 +129,11 @@ class Evaluator:
                 heading_path = []
                 if raw_path:
                     try:
-                        heading_path = (
-                            json.loads(raw_path)
-                            if isinstance(raw_path, str)
-                            else raw_path
-                        )
-                    except Exception:
-                        heading_path = [str(raw_path)]
+                        parsed = json.loads(raw_path)
+                        heading_path = parsed if isinstance(parsed, list) else [str(parsed)]
+                    except (json.JSONDecodeError, TypeError):
+                        # Legacy fallback: if stored as " > " joined string
+                        heading_path = [s.strip() for s in str(raw_path).split(" > ") if s.strip()]
                 heading_path_str = (
                     " > ".join(heading_path)
                     if isinstance(heading_path, list)

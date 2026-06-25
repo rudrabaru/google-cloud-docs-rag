@@ -139,3 +139,89 @@ class OptionalReranker:
             rerank_latency_ms=latency,
             chunks=reranked_chunks,
         )
+
+
+class HybridRetriever:
+    def __init__(
+        self,
+        dense_retriever: DenseRetriever,
+        bm25_index_path: str,
+    ):
+        import pickle
+        self.dense_retriever = dense_retriever
+        logger.info(f"Loading BM25 index from {bm25_index_path}")
+        with open(bm25_index_path, 'rb') as f:
+            bm25_data = pickle.load(f)
+        self.bm25 = bm25_data["bm25"]
+        self.bm25_chunks = bm25_data["chunks"] 
+        
+    def retrieve(self, query: str, top_k: int = 5) -> RetrievalResult:
+        start_time = time.time()
+        
+        # 1. Dense Retrieval (get more candidates for RRF)
+        dense_result = self.dense_retriever.retrieve(query, top_k=top_k * 4)
+        dense_chunks = dense_result.chunks
+        
+        # 2. Sparse Retrieval (BM25)
+        sparse_start = time.time()
+        tokenized_query = query.lower().split()
+        bm25_scores = self.bm25.get_scores(tokenized_query)
+        
+        import numpy as np
+        top_n = min(top_k * 4, len(bm25_scores))
+        # Get indices of top_n scores
+        top_indices = np.argsort(bm25_scores)[::-1][:top_n]
+        
+        sparse_chunks = []
+        for idx in top_indices:
+            score = bm25_scores[idx]
+            if score <= 0:
+                continue
+            chunk_dict = self.bm25_chunks[idx]
+            # EmbeddedChunk fields are flattened
+            source_doc = chunk_dict.get("source_url", chunk_dict.get("source_document", ""))
+            
+            sparse_chunks.append(RetrievedChunk(
+                chunk_id=chunk_dict["chunk_id"],
+                source_document=source_doc,
+                text=chunk_dict["chunk_text"],
+                similarity_score=float(score),
+                metadata=chunk_dict  # Pass the entire dict as metadata
+            ))
+            
+        sparse_latency = (time.time() - sparse_start) * 1000
+        
+        # 3. Reciprocal Rank Fusion (RRF)
+        rrf_k = 60
+        scores = {}
+        chunk_map = {}
+        
+        for rank, chunk in enumerate(dense_chunks):
+            scores[chunk.chunk_id] = scores.get(chunk.chunk_id, 0.0) + 1.0 / (rrf_k + rank + 1)
+            chunk_map[chunk.chunk_id] = chunk
+            
+        for rank, chunk in enumerate(sparse_chunks):
+            scores[chunk.chunk_id] = scores.get(chunk.chunk_id, 0.0) + 1.0 / (rrf_k + rank + 1)
+            if chunk.chunk_id not in chunk_map:
+                chunk_map[chunk.chunk_id] = chunk
+                
+        # Sort by RRF score descending
+        sorted_chunk_ids = sorted(scores.keys(), key=lambda cid: scores[cid], reverse=True)
+        
+        final_chunks = []
+        for cid in sorted_chunk_ids[:top_k]:
+            c = chunk_map[cid]
+            # Replace original similarity score with the RRF score
+            c.similarity_score = scores[cid]
+            final_chunks.append(c)
+            
+        latency = (time.time() - start_time) * 1000
+        
+        return RetrievalResult(
+            query=query,
+            top_k=top_k,
+            latency_ms=latency,
+            embedding_latency_ms=dense_result.embedding_latency_ms,
+            search_latency_ms=dense_result.search_latency_ms + sparse_latency,
+            chunks=final_chunks
+        )

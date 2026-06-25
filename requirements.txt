@@ -17,7 +17,19 @@ colorama==0.4.6
 # Data Storage & Inspection
 json5==0.9.14
 
-# Optional: LLM & Embeddings (for later phases)
+# Embeddings & Vector Store
 sentence-transformers
 chromadb
-# openai==1.3.0
+rank_bm25
+
+#LLM Generation
+google-genai>=0.5.0
+
+# API Layer
+fastapi
+uvicorn
+
+# Dashboard & Observability
+streamlit
+pandas
+plotly

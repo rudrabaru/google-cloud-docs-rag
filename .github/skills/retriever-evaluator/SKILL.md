@@ -10,7 +10,9 @@ Design a mathematically robust, corpus-independent evaluator capable of taking a
 
 # Requirements
 1. **Vector Integration**: Interface with the dense vector store (e.g., ChromaDB) to perform top-K nearest-neighbor similarity searches for given dataset queries.
-2. **Token-Aware Normalization**: Ensure your evaluator normalizes expected metadata targets and retrieved metadata by splitting on all non-alphanumeric boundaries. The match resolution must be based on a generic token sublist check, strictly prohibiting naive exact-substring (`in`) or URL hardcoding.
-3. **Integrity Scanner**: Build an automated pre-flight check that scans the JSON evaluation dataset for malformed targets, missing fields, or duplicate expectations before triggering the embedding models.
-4. **Evidence Reporting**: Generate a granular, query-level report logging the raw identifier, normalized tokens, matching rule used, and human-readable classification reason for every retrieval attempt.
-5. **Configurable CLI**: Provide an executable script using `argparse` allowing dynamic injection of datasets and collection names at runtime.
+2. **Hybrid Search (BM25 + Dense)**: Implement Reciprocal Rank Fusion (RRF) to merge exact-keyword sparse retrieval with dense semantic retrieval for robust context fetching.
+3. **Cross-Encoder Reranking**: Allow an optional reranking phase to deeply score top-N retrieved chunks before returning the final top-K to the generator.
+4. **Token-Aware Normalization**: Ensure your evaluator normalizes expected metadata targets and retrieved metadata by splitting on all non-alphanumeric boundaries. The match resolution must be based on a generic token sublist check, strictly prohibiting naive exact-substring (`in`) or URL hardcoding.
+5. **Integrity Scanner**: Build an automated pre-flight check that scans the JSON evaluation dataset for malformed targets, missing fields, or duplicate expectations before triggering the embedding models.
+6. **Evidence Reporting**: Generate a granular, query-level report logging the raw identifier, normalized tokens, matching rule used, and human-readable classification reason for every retrieval attempt.
+7. **Configurable CLI**: Provide an executable script using `argparse` allowing dynamic injection of datasets and collection names at runtime.

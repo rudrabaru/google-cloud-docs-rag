@@ -1,3 +1,16 @@
+"""
+What it does: Runs a massive batch of queries (your entire dataset) silently in the background, calculates math (Recall@K, MRR), and outputs a JSON report card.
+When to use it: To prove your system improved across the board.
+The limitation: It tells you that a query failed, but it doesn't clearly show you why it failed.
+
+Example Scenario:
+
+You run run_evaluation.py and see that the query "How do I upload a file?" failed (Recall@1 = 0).
+You ask yourself: "Why did it fail? What did the vector database return instead?"
+You run: python scripts/run_retrieval.py --query "How do I upload a file?"
+The terminal prints the top 3 chunks. You read the text and realize the system retrieved a chunk about downloading files because the embeddings confused "upload" and "download".
+"""
+
 import sys
 import os
 import json
@@ -11,7 +24,7 @@ from collections import defaultdict
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.retrieving.vector_store import ChromaDBManager
-from src.retrieving.retriever import DenseRetriever
+from src.retrieving.retriever import DenseRetriever, OptionalReranker
 from src.retrieving.evaluation import Evaluator, EvaluationQuery
 from scripts.version_utils import get_latest_version, get_next_version
 
@@ -167,6 +180,12 @@ def main():
         default="retrieval/v1/evaluations",
         help="Base evaluation output directory",
     )
+    parser.add_argument(
+        "--use_reranker", action="store_true", help="Use cross-encoder reranker"
+    )
+    parser.add_argument(
+        "--use_hybrid", action="store_true", help="Use Hybrid Search (BM25 + Dense)"
+    )
     args = parser.parse_args()
 
     base_embeddings_dir = Path("embeddings")
@@ -192,8 +211,18 @@ def main():
 
     logger.info(f"Connected to ChromaDB collection: {args.collection_name}")
 
-    retriever = DenseRetriever(vector_store=db_manager)
-    evaluator = Evaluator(retriever=retriever)
+    dense_retriever = DenseRetriever(vector_store=db_manager)
+    
+    if args.use_hybrid:
+        bm25_path = base_embeddings_dir / embed_version / "bm25_index.pkl"
+        from src.retrieving.retriever import HybridRetriever
+        retriever = HybridRetriever(dense_retriever=dense_retriever, bm25_index_path=str(bm25_path))
+        logger.info("Using Hybrid Search (BM25 + Dense) for evaluation.")
+    else:
+        retriever = dense_retriever
+        logger.info("Using Dense Search only for evaluation.")
+    reranker = OptionalReranker() if args.use_reranker else None
+    evaluator = Evaluator(retriever=retriever, reranker=reranker)
 
     dataset_path = Path(args.dataset)
     if not dataset_path.exists():

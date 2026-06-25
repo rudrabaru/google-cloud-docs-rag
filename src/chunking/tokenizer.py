@@ -1,5 +1,5 @@
 """
-Token counting abstraction using tiktoken (OpenAI tokenizer).
+Token counting abstraction using tiktoken.
 
 This module provides consistent token counting across the chunking pipeline.
 """
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class TokenCounter:
     """
     Wrapper around tiktoken for consistent token counting.
-    Uses the cl100k_base encoding (same as OpenAI's GPT models).
+    Uses the cl100k_base encoding.
     """
 
     def __init__(self, encoding_name: str = "cl100k_base"):
@@ -22,7 +22,7 @@ class TokenCounter:
         Initialize token counter.
 
         Args:
-            encoding_name: tiktoken encoding to use (default: OpenAI's cl100k_base)
+            encoding_name: tiktoken encoding to use (default: cl100k_base)
         """
         try:
             self.encoding = tiktoken.get_encoding(encoding_name)

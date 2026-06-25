@@ -5,10 +5,15 @@ The crawling pipeline is an asynchronous, depth-aware web crawler designed to sy
 
 ## Implementation Details
 
-### 1. URL Filtering & Boundaries
-During the crawl, the system extracts all internal and external links from the parsed HTML and Markdown. The URL filtering component evaluates discovered URLs based on allowed domains, regex exclusion patterns, and required path keywords. This generic design allows the crawler to adapt to any documentation site without hardcoding domain-specific rules.
+### 1. Ingestion Strategies
+The crawler supports two primary ingestion methods:
+- **Depth-First Search (BFS) Crawling**: Navigates from a designated seed URL up to a configured maximum depth, extracting all internal and external links.
+- **Sitemap XML Parsing**: Directly fetches and parses standard `sitemap.xml` files. This bypasses BFS constraints and ensures complete site coverage in a single request, eliminating the need to traverse the DOM for link discovery.
 
-### 2. Markdown Conversion
+### 2. URL Filtering & Boundaries
+During the crawl, the system evaluates discovered URLs based on allowed domains, regex exclusion patterns, and required path keywords. This generic design allows the crawler to adapt to any documentation site without hardcoding domain-specific rules.
+
+### 3. Markdown Conversion
 The crawler converts the Document Object Model (DOM) into semantic Markdown immediately upon fetching. It attempts to extract the main title and preserves textual elements, code blocks, lists, and tables natively. 
 
 ### 3. Versioning

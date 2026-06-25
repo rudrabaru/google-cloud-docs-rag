@@ -11,6 +11,9 @@ The `ChromaDBManager` abstracts the complexities of the database. It handles bat
 ### 2. Dense Retrieval Queries
 The `DenseRetriever` accepts natural language queries, embeds them on the fly using the identical Phase 4 Transformer model, and queries the ChromaDB index using Cosine Similarity or L2 distance. 
 
+### 3. Cross-Encoder Reranking
+To improve precision, the retrieval phase incorporates an optional Cross-Encoder reranking step (`OptionalReranker`). When enabled, the system retrieves an expanded candidate pool (e.g., `top_k * 4`) via dense retrieval, then reranks these candidates using a highly accurate cross-encoder model to return the final `top_k`. This achieves a strong balance between dense retrieval speed and cross-encoder accuracy.
+
 ### 3. Sublist Token Matching (Evaluation Tracking)
 For evaluation pipelines, retrieving documents uses highly accurate token-aware sublist mapping. This ensures benchmarking logic evaluates true hit-rates regardless of string-truncation variations.
 

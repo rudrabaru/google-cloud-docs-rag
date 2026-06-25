@@ -52,11 +52,9 @@ class ChromaDBManager:
             "document_version": chunk.document_version,
         }
 
-        # Convert heading_path list to a string
-        if chunk.heading_path:
-            metadata["heading_path"] = " > ".join(chunk.heading_path)
-        else:
-            metadata["heading_path"] = ""
+        # Store heading_path as a JSON array string for lossless round-trip parsing.
+        # Consumers must use json.loads() to reconstruct the list.
+        metadata["heading_path"] = json.dumps(chunk.heading_path)
 
         return metadata
 
@@ -79,14 +77,22 @@ class ChromaDBManager:
             metadatas.append(self._prepare_metadata(chunk))
             documents.append(chunk.chunk_text)
 
+        max_batch_size = 5000
+        total_added = 0
+        
         try:
-            self.collection.add(
-                ids=ids, embeddings=embeddings, metadatas=metadatas, documents=documents
-            )
-            return len(ids)
+            for i in range(0, len(ids), max_batch_size):
+                self.collection.add(
+                    ids=ids[i:i + max_batch_size],
+                    embeddings=embeddings[i:i + max_batch_size],
+                    metadatas=metadatas[i:i + max_batch_size],
+                    documents=documents[i:i + max_batch_size]
+                )
+                total_added += len(ids[i:i + max_batch_size])
+            return total_added
         except Exception as e:
             logger.error(f"Failed to load chunks into ChromaDB: {e}")
-            return 0
+            return total_added
 
     def load_from_directory(self, embeddings_dir: str, batch_size: int = 100) -> int:
         """
